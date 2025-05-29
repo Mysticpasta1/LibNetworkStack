@@ -1,137 +1,92 @@
 plugins {
-    id 'fabric-loom' version '1.2-SNAPSHOT'
-    id 'org.cadixdev.licenser' version '0.6.1'
+    id 'dev.architectury.loom' version '1.10-SNAPSHOT'
+    id 'maven-publish'
 }
 
-apply plugin: 'maven-publish' // for uploading to a maven repo
+group = project.maven_group
+version = project.mod_version
 
-sourceCompatibility = JavaVersion.VERSION_17
-targetCompatibility = JavaVersion.VERSION_17
-
-archivesBaseName = "LibNetworkStack"
-version = "0.10.1-pre.2"
-
-license {
-    header = project.file('misc/LICENSE_HEADER.txt');
-    newLine = false;
+base {
+    archivesName = project.archives_name
 }
 
 loom {
+    forge {
+        mixinConfig 'libmultipart.mixins.json'
+    }
+}
+
+repositories {
+    mavenCentral()
+
+    repositories {
+        maven {
+            url "https://cursemaven.com"
+            content {
+                includeGroup "curse.maven"
+            }
+        }
+    }
+
+    maven {
+        url "https://maven.su5ed.dev/releases"
+    }
+    maven {
+        url "https://maven.su5ed.dev/releases"
+    }
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:1.20"
-    mappings "net.fabricmc:yarn:1.20+build.1:v2"
-    modCompileOnly "net.fabricmc:fabric-loader:0.14.21"
-    modLocalRuntime "net.fabricmc:fabric-loader:0.14.21"
+    minecraft "net.minecraft:minecraft:$project.minecraft_version"
+    mappings "net.fabricmc:yarn:$project.yarn_mappings:v2"
+    forge "net.minecraftforge:forge:$project.forge_version"
 
-    //Fabric api
-    modCompileOnly "net.fabricmc.fabric-api:fabric-api:0.83.0+1.20"
-    modLocalRuntime "net.fabricmc.fabric-api:fabric-api:0.83.0+1.20"
+    modCompileOnly "curse.maven:sinytra-connector-890127:5761411"
+    modLocalRuntime "curse.maven:sinytra-connector-890127:5761411"
 
-    // Misc
+    // Fabric api
+    modCompileOnly ("dev.su5ed.sinytra.fabric-api:fabric-api:0.91.0+1.10.8+1.20.1")
+    modRuntimeOnly ("dev.su5ed.sinytra.fabric-api:fabric-api:0.91.0+1.10.8+1.20.1")
+
     compileOnly "com.google.code.findbugs:jsr305:3.0.1"
     testImplementation "junit:junit:4.13.1"
 }
 
-compileJava {
-    options.compilerArgs << "-Xmaxerrs" << "2000"
-    options.compilerArgs << "-Xmaxwarns" << "2"
-    options.compilerArgs << "-Xlint:all"
-    options.compilerArgs << "-Xdiags:verbose"
+processResources {
+    inputs.property 'version', project.version
+
+    filesMatching('META-INF/mods.toml') {
+        expand version: project.version
+    }
 }
 
-javadoc {
-    destinationDir file(new File(System.getenv("JAVADOC_DIR") ?: "$projectDir/build/javadoc", "$version"));
-    exclude "alexiil/mc/lib/net/mixin";
-    options.optionFiles << file('javadoc.options');
+java {
+    // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
+    // if it is present.
+    // If you remove this line, sources will not be generated.
+    withSourcesJar()
+
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
 }
 
-build.dependsOn(javadoc);
-
-// ensure that the encoding is set to UTF-8, no matter what the system default is
-// this fixes some edge cases with special characters not displaying correctly
-// see http://yodaconditions.net/blog/fix-for-java-file-encoding-problems-with-gradle.html
-tasks.withType(JavaCompile) {
-    options.encoding = "UTF-8"
-
-    // Minecraft 1.18 upwards uses Java 17.
+tasks.withType(JavaCompile).configureEach {
     it.options.release = 17
 }
 
-java.withSourcesJar()
-
-import java.net.Authenticator;
-import java.net.PasswordAuthentication;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-
-if (System.getenv("UPLOAD_MAVEN_URL") != null) {
-    task packageJavadoc(type: Zip, dependsOn: javadoc) {
-        from javadoc.destinationDir
-        archiveFileName = "libnetworkstack-javadoc-" + version + ".zip"
-    }
-
-    task uploadJavadoc(dependsOn: packageJavadoc) {
-        doLast {
-            HttpClient cl = HttpClient.newBuilder().authenticator(new Authenticator() {
-                @Override
-                protected PasswordAuthentication getPasswordAuthentication() {
-                    return new PasswordAuthentication(System.getenv("UPLOAD_USERNAME"), System.getenv("UPLOAD_PASSWORD").toCharArray());
-                }
-            }).build();
-            java.io.File file = packageJavadoc.outputs.files.singleFile;
-            java.nio.file.Path path = file.toPath();
-            HttpRequest put = HttpRequest.newBuilder()
-                .PUT(HttpRequest.BodyPublishers.ofFile(path))
-                .uri(new URI(System.getenv("UPLOAD_MAVEN_URL") +  "/tmp-javadocs/" + file.getName()))
-                .build();
-            HttpResponse<String> response = cl.send(put, HttpResponse.BodyHandlers.ofString());
-            if ((int)(response.statusCode() / 100) != 2) {
-                println(response.statusCode());
-                println(response.body());
-                throw new Error("Upload Javadoc Zip Failed!");
-            }
-        }
-    }
-}
-
+// Configure Maven publishing.
 publishing {
-    repositories {
-        if (System.getenv("UPLOAD_MAVEN_URL") != null) {
-            maven {
-                url System.getenv("UPLOAD_MAVEN_URL");
-                credentials {
-                    username System.getenv("UPLOAD_USERNAME");
-                    password System.getenv("UPLOAD_PASSWORD");
-                }
-            }
-        } else {
-            maven {
-                url System.getenv("MAVEN_DIR") ?: "$projectDir/build/maven"
-            }
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
         }
     }
-}
 
-// #####################
-//
-// Extra jar section
-//
-// #####################
-
-apply from: "extra_jar_def.gradle"
-
-ext.mainName = "libnetworkstack"
-ext.mavenGroupId = "alexiil.mc.lib";
-
-ext.extra_jar_def__optimised_compression = true;
-ext.extra_jar_def__common_manifest.put(null, ['Sealed': 'true']);
-
-ext.generateJar("base", ["**"], [], true);
-
-tasks.withType(AbstractArchiveTask) {
-    preserveFileTimestamps = false
-    reproducibleFileOrder = true
+    // See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
+    repositories {
+        // Add repositories to publish to here.
+        // Notice: This block does NOT have the same function as the block in the top level.
+        // The repositories here will be used for publishing your artifact, not for
+        // retrieving dependencies.
+    }
 }
